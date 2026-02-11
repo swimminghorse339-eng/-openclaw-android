@@ -1,0 +1,66 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'android_remote/**'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git zip unzip openjdk-17-jdk autoconf libtool pkg-config \
+          zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+          cmake libffi-dev libssl-dev automake help2man wget
+        pip install buildozer cython
+    
+    - name: Cache buildozer dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          android_remote/.buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('android_remote/buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
+    
+    - name: Build APK
+      working-directory: ./android_remote
+      run: |
+        buildozer android debug
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: apk
+        path: android_remote/bin/*.apk
+    
+    - name: Create Release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: android_remote/bin/*.apk
+        tag_name: v${{ github.run_number }}
+        name: Windows Remote v${{ github.run_number }}
+        body: |
+          Windows Remote Control APK
+          - Functions: Lock screen, Volume, Mouse, Keyboard, Screenshots
+          - Connects via WiFi or ngrok
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
