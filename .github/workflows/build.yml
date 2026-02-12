@@ -59,27 +59,25 @@ jobs:
       run: |
         SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
         echo "Using SDK path: $SDK_PATH"
-        cat > buildozer.spec << 'EOF'
+        cat > buildozer.spec << ENDOFFILE
 [app]
 title = Windows Remote
 package.name = windowsremote
 package.domain = com.example
 source.dir = .
 version = 0.1
-requirements = python3,kivy,requests,pyjnius,setuptools,packaging
+requirements = python3,kivy,requests,pyjnius,setuptools
 orientation = portrait
 fullscreen = 0
 android.archs = arm64-v8a
 android.permissions = INTERNET
-
-[android]
 android.sdk_path = ${SDK_PATH}
 android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653
 
 [buildozer]
 log_level = 2
 warn_on_root = 1
-EOF
+ENDOFFILE
         echo "=== buildozer.spec created ==="
         cat buildozer.spec
 
