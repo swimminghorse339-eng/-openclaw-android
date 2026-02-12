@@ -10,15 +10,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -32,57 +31,40 @@ jobs:
           sudo apt-get install -y zlib1g-dev
           sudo apt-get install -y android-tools-adb
           sudo apt-get install -y autoconf automake libtool
-      
+          sudo apt-get install -y openjdk-17-jdk
+
       - name: Install Buildozer
         run: |
           pip install buildozer cython packaging
-      
-      - name: Create buildozer.spec
+
+      - name: Prep Buildozer Spec
         run: |
-          cat > buildozer.spec << 'EOF'
-          [app]
-          title = OpenClaw Remote
-          package.name = openclawremote
-          package.domain = com.example
-          source.dir = .
-          source.include_exts = py,png,jpg,kv,atlas
-          version = 0.1
-          requirements = python3,kivy,requests,pyjnius,setuptools
-          orientation = portrait
-          fullscreen = 0
-          android.api = 33
-          android.minapi = 21
-          android.sdk = 33
-          android.ndk = 25b
-          android.enable_androidx = True
-          android.permissions = INTERNET, ACCESS_NETWORK_STATE
-          android.arch = arm64-v8a
-          # Fix SDL2_ttf harfbuzz issue - use older p4a version
-          p4a.branch = v2024.01.21
-          p4a.local_recipes =
-          [buildozer]
-          log_level = 2
-          warn_on_root = 1
-          EOF
-      
+          # Override needed settings for clean build
+          echo "" >> buildozer.spec
+          echo "[buildozer]" >> buildozer.spec
+          echo "log_level = 2" >> buildozer.spec
+          echo "warn_on_root = 1" >> buildozer.spec
+
       - name: Build APK
         run: |
-          buildozer android debug || echo "Build completed with warnings"
-        timeout-minutes: 60
-        continue-on-error: true
-      
+          buildozer android debug 2>&1 | tee build.log
+        timeout-minutes: 90
+
+      - name: Verify Build Output
+        run: |
+          echo "=== Build Output Check ==="
+          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+          find . -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+          echo "=== Buildozer Log ==="
+          find .buildozer -name "*.log" -type f -exec cat {} \; 2>/dev/null | tail -100 || echo "No log files found"
+          echo "=== Final Status ==="
+          ls -la bin/*.apk 2>/dev/null
+
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: |
             bin/*.apk
-            build/android/**/*.apk
-            buildozer/android/**/*.apk
           if-no-files-found: warn
-      
-      - name: Build Status
-        run: |
-          echo "Build attempt completed"
-          ls -la bin/ || echo "No bin directory"
-          find build -name "*.apk" 2>/dev/null || echo "No APK files found"
