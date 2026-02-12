@@ -37,16 +37,14 @@ jobs:
         run: |
           pip install buildozer cython packaging
 
-      - name: Prep Buildozer Spec
+      - name: Show Buildozer Spec
         run: |
-          # Override needed settings for clean build
-          echo "" >> buildozer.spec
-          echo "[buildozer]" >> buildozer.spec
-          echo "log_level = 2" >> buildozer.spec
-          echo "warn_on_root = 1" >> buildozer.spec
+          cat buildozer.spec
 
       - name: Build APK
         run: |
+          export ANDROIDAPI=33
+          export ANDROIDNDK=25b
           buildozer android debug 2>&1 | tee build.log
         timeout-minutes: 90
 

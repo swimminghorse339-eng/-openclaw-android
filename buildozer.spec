@@ -10,9 +10,7 @@ fullscreen = 0
 android.archs = arm64-v8a,armeabi-v7a
 android.permissions = INTERNET
 
-# Fix for SDL2_ttf harfbuzz build issues
-p4a.branch = release-2024.01
-
+# Build configuration
 [buildozer]
 log_level = 2
 warn_on_root = 1
