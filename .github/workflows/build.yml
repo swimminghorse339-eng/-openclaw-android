@@ -23,19 +23,13 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev libfreetype6-dev libpng-dev
           sudo apt-get install -y libx11-dev libxext-dev libxrender-dev
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 12.0
-          packages: "platform-tools platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653"
-
       - name: Install Buildozer
         run: |
           pip install buildozer cython setuptools packaging
 
       - name: Create buildozer.spec
         run: |
-          cat > buildozer.spec << 'EOF'
+          cat > buildozer.spec << 'SPEC'
           [app]
           title = Windows Remote
           package.name = windowsremote
@@ -47,22 +41,31 @@ jobs:
           fullscreen = 0
           android.archs = arm64-v8a
           android.permissions = INTERNET
-          p4a.local_recipes =
+          android.api = 33
+          android.minapi = 21
+          android.sdk = 33
+          android.ndk = 25.2.9519653
+          android.requirements = build-tools;33.0.2,platforms;android-33
 
           [buildozer]
           log_level = 2
           warn_on_root = 1
-          EOF
+          SPEC
 
       - name: Build APK
         run: |
-          buildozer android debug
-        timeout-minutes: 60
+          export ANDROID_HOME=""
+          export ANDROID_SDK_ROOT=""
+          # Let buildozer download and manage its own SDK
+          buildozer -v android debug
+        timeout-minutes: 90
 
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: bin/*.apk
+          path: |
+            bin/*.apk
+            .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
