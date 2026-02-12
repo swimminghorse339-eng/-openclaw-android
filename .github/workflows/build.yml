@@ -84,16 +84,24 @@ jobs:
           echo "=== buildozer.spec created ==="
           cat buildozer.spec
 
-      - name: Build APK
+      - name: Accept Android SDK Licenses
         run: |
+          yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME || true
+          echo "Licenses accepted"
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -o pipefail
           echo "Starting build..."
-          buildozer android debug 2>&1 | tee build_output.log
+          buildozer -v android debug 2>&1 | tee build_output.log
           result=$?
           echo "Build exit code: $result"
           # Check if APK was actually created
           echo "=== Checking for APK after build ==="
           find . -name "*.apk" -type f 2>/dev/null | head -5
           ls -la bin/ 2>/dev/null || echo "No bin/ directory found"
+          ls -la .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/ 2>/dev/null || echo "No debug APK dir found"
           exit $result
         timeout-minutes: 90
 
@@ -119,10 +127,14 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          # Find all APK files and copy them
-          find . -name "*.apk" -type f -exec cp {} artifacts/ \; 2>/dev/null || true
+          # Find all APK files and copy them with verbose output
+          echo "=== Searching for APK files ==="
+          find . -name "*.apk" -type f 2>/dev/null
+          find . -name "*.apk" -type f -exec cp -v {} artifacts/ \; 2>/dev/null || true
           # Copy log file
           cp build_output.log artifacts/ 2>/dev/null || true
+          # Also copy buildozer's known output paths
+          cp .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/*.apk artifacts/ 2>/dev/null || true
           echo "=== Collected artifacts ==="
           ls -la artifacts/
 
