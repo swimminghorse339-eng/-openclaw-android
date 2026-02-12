@@ -1,16 +1,15 @@
 [app]
 title = Windows Remote
 package.name = windowsremote
-package.domain = org.example
+package.domain = com.example
 source.dir = .
 version = 0.1
-requirements = python3,kivy==2.3.0,requests,urllib3,pyjnius,setuptools
+requirements = python3,kivy,requests,pyjnius,setuptools
 orientation = portrait
 fullscreen = 0
-android.archs = arm64-v8a,armeabi-v7a
+android.archs = arm64-v8a
 android.permissions = INTERNET
 
-# Build configuration
 [buildozer]
 log_level = 2
 warn_on_root = 1
