@@ -34,7 +34,7 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 12.0
-          packages: "platform-tools platforms;android-33 build-tools;36.1.0"
+          packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653"
           accept-android-sdk-licenses: true
 
       - name: Install Buildozer
@@ -53,10 +53,16 @@ jobs:
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+          # Accept all Android SDK licenses
+          yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
 
       - name: Create buildozer.spec
         run: |
-          cat > buildozer.spec << 'ENDOFFILE'
+          # Get actual SDK path from android-setup action
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "Using SDK path: $SDK_PATH"
+          
+          cat > buildozer.spec << ENDOFFILE
           [app]
           title = Windows Remote
           package.name = windowsremote
@@ -68,6 +74,8 @@ jobs:
           fullscreen = 0
           android.archs = arm64-v8a
           android.permissions = INTERNET
+          android.sdk_path = ${SDK_PATH}
+          android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653
 
           [buildozer]
           log_level = 2
