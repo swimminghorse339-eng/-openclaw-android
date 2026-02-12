@@ -27,39 +27,64 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('**/*.py') }}
+          key: ${{ runner.os }}-buildozer-v3-${{ hashFiles('**/*.py') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-v2-
+            ${{ runner.os }}-buildozer-v3-
 
       - name: Install Buildozer
         run: |
           pip install buildozer cython setuptools packaging
 
-      - name: Setup Android SDK for Buildozer
+      - name: Setup Android SDK
         run: |
-          # Create SDK in the location buildozer expects
           SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$SDK_DIR"
           cd "$SDK_DIR"
           
           # Download command line tools
-          if [ ! -d "cmdline-tools" ]; then
+          if [ ! -f "cmdline-tools/latest/bin/sdkmanager" ]; then
             echo "Downloading Android SDK command line tools..."
+            rm -rf cmdline-tools
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
             unzip -q commandlinetools-linux-11076708_latest.zip
+            mv cmdline-tools cmdline-tools-temp
             mkdir -p cmdline-tools/latest
-            mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
-            rm commandlinetools-linux-11076708_latest.zip
+            mv cmdline-tools-temp/* cmdline-tools/latest/
+            rmdir cmdline-tools-temp 2>/dev/null || true
+            rm -f commandlinetools-linux-11076708_latest.zip
           fi
           
-          # Accept licenses and install required packages
-          export ANDROID_HOME="$SDK_DIR"
-          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
+          # Create tools/bin directory that buildozer expects
+          mkdir -p "$SDK_DIR/tools/bin"
           
-          echo "SDK setup complete"
-          ls -la "$SDK_DIR"
-          ls -la "$SDK_DIR/build-tools/" || echo "No build-tools yet"
+          # Create sdkmanager wrapper in tools/bin
+          cat > "$SDK_DIR/tools/bin/sdkmanager" << 'EOF'
+          #!/bin/bash
+          exec "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager" "$@"
+          EOF
+          chmod +x "$SDK_DIR/tools/bin/sdkmanager"
+          
+          # Create other tool wrappers
+          for tool in adb fastboot avdmanager; do
+            cat > "$SDK_DIR/tools/bin/$tool" << EOF
+          #!/bin/bash
+          exec "\$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/$tool" "\$@"
+          EOF
+            chmod +x "$SDK_DIR/tools/bin/$tool"
+          done
+          
+          # Accept licenses and install packages
+          export ANDROID_HOME="$SDK_DIR"
+          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
+          
+          # Install required components
+          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653" 2>&1 | grep -v "^Loading" || true
+          
+          echo "=== SDK Structure ==="
+          ls -la "$SDK_DIR/"
+          ls -la "$SDK_DIR/tools/bin/" 2>/dev/null || echo "No tools/bin"
+          ls -la "$SDK_DIR/build-tools/" 2>/dev/null || echo "No build-tools yet"
+          ls -la "$SDK_DIR/ndk/" 2>/dev/null || echo "No ndk yet"
 
       - name: Create buildozer.spec
         run: |
@@ -79,17 +104,12 @@ jobs:
           [buildozer]
           log_level = 2
           warn_on_root = 1
-          
-          [env]
-          ANDROID_HOME = /home/runner/.buildozer/android/platform/android-sdk
-          ANDROID_SDK_ROOT = /home/runner/.buildozer/android/platform/android-sdk
           SPEC
 
       - name: Build APK
         run: |
           export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           buildozer -v android debug
         timeout-minutes: 120
 
