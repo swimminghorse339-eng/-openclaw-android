@@ -56,6 +56,14 @@ jobs:
           # Accept all Android SDK licenses
           yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
 
+      - name: Verify Python Environment
+        run: |
+          python --version
+          pip --version
+          pip list | grep -E "buildozer|Cython|setuptools|packaging"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -la $ANDROID_HOME/cmdline-tools/12.0/
+
       - name: Create buildozer.spec
         run: |
           # Get actual SDK path from android-setup action
@@ -94,14 +102,16 @@ jobs:
         run: |
           set -o pipefail
           echo "Starting build..."
-          buildozer -v android debug 2>&1 | tee build_output.log
+          buildozer -v android debug 2>&1 | tee build_output.log || true
           result=$?
           echo "Build exit code: $result"
-          # Check if APK was actually created
+          # Show full build log for debugging
+          echo "=== FULL BUILD OUTPUT ==="
+          cat build_output.log | tail -500
           echo "=== Checking for APK after build ==="
           find . -name "*.apk" -type f 2>/dev/null | head -5
           ls -la bin/ 2>/dev/null || echo "No bin/ directory found"
-          ls -la .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/ 2>/dev/null || echo "No debug APK dir found"
+          find .buildozer -type d -name "outputs" 2>/dev/null || echo "No outputs dirs"
           exit $result
         timeout-minutes: 90
 
@@ -127,14 +137,21 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          # Find all APK files and copy them with verbose output
+          # Show what's in the project
+          echo "=== Project structure ==="
+          ls -la
+          echo "=== .buildozer structure ==="
+          find .buildozer -type d -maxdepth 3 2>/dev/null || echo "No .buildozer"
+          # Find all APK files
           echo "=== Searching for APK files ==="
           find . -name "*.apk" -type f 2>/dev/null
           find . -name "*.apk" -type f -exec cp -v {} artifacts/ \; 2>/dev/null || true
           # Copy log file
-          cp build_output.log artifacts/ 2>/dev/null || true
-          # Also copy buildozer's known output paths
-          cp .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/*.apk artifacts/ 2>/dev/null || true
+          cp build_output.log artifacts/ 2>/dev/null || echo "No build_output.log"
+          # Also copy buildozer's known output paths  
+          cp .buildozer/android/platform/build/dists/windowsremote/build/outputs/apk/debug/*.apk artifacts/ 2>/dev/null || echo "No APK in windowsremote"
+          # Copy .aab too if present
+          find . -name "*.aab" -exec cp -v {} artifacts/ \; 2>/dev/null || true
           echo "=== Collected artifacts ==="
           ls -la artifacts/
 
