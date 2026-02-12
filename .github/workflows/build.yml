@@ -1,76 +1,22 @@
-name: Build Android APK
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip openjdk-17-jdk
-          sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev
-          sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev
-          sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev
-          sudo apt-get install -y libfreetype6-dev libpng-dev
-          sudo apt-get install -y libx11-dev libxext-dev libxrender-dev libtiff5-dev
-          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-          sudo apt-get install -y zlib1g-dev autoconf automake libtool
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 12.0
-          packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653"
-          accept-android-sdk-licenses: true
-
+name: Build Android APK on: push: branches: [ main, master ] pull_request: branches: [ main, master ] workflow_dispatch: jobs: build: runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: Set up Python uses: actions/setup-python@v5 with: python-version: '3.11' - name: Install dependencies run: | sudo apt-get update sudo apt-get install -y python3-pip openjdk-17-jdk sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev sudo apt-get install -y libfreetype6-dev libpng-dev sudo apt-get install -y libx11-dev libxext-dev libxrender-dev libtiff5-dev sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev sudo apt-get install -y zlib1g-dev autoconf automake libtool - name: Setup Android SDK uses: android-actions/setup-android@v3 with: cmdline-tools-version: 12.0 packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653" accept-android-sdk-licenses: true - name: Setup SDK Manager for Buildozer run: | echo "ANDROID_HOME=$ANDROID_HOME" echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" # Create the tools/bin directory that buildozer expects mkdir -p $ANDROID_SDK_ROOT/tools/bin # Create wrapper script that points to actual sdkmanager cat > $ANDROID_SDK_ROOT/tools/bin/sdkmanager << 'EOF'
+          #!/bin/bash
+          exec $ANDROID_SDK_ROOT/cmdline-tools/12.0/bin/sdkmanager "$@"
+          EOF
+          chmod +x $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+          # Also check if sdkmanager is accessible
+          which sdkmanager || echo "sdkmanager not in PATH, checking location..."
+          find $ANDROID_SDK_ROOT -name "sdkmanager" -type f 2>/dev/null | head -5
+          ls -la $ANDROID_SDK_ROOT/tools/bin/
+          
       - name: Install Buildozer
         run: |
           pip install buildozer cython packaging
-
-      - name: Cache buildozer downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
-          restore-keys: |
-            ${{ runner.os }}-buildozer-
-
-      - name: Setup Buildozer Environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
-          # Accept all Android SDK licenses
-          yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
-
-      - name: Verify Python Environment
-        run: |
-          python --version
-          pip --version
-          pip list | grep -E "buildozer|Cython|setuptools|packaging"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la $ANDROID_HOME/cmdline-tools/12.0/
-
+          
       - name: Create buildozer.spec
         run: |
-          # Get actual SDK path from android-setup action
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           echo "Using SDK path: $SDK_PATH"
-          
-          cat > buildozer.spec << ENDOFFILE
+          cat > buildozer.spec << EOF
           [app]
           title = Windows Remote
           package.name = windowsremote
@@ -84,77 +30,32 @@ jobs:
           android.permissions = INTERNET
           android.sdk_path = ${SDK_PATH}
           android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653
-
+          
           [buildozer]
           log_level = 2
           warn_on_root = 1
-          ENDOFFILE
+          EOF
           echo "=== buildozer.spec created ==="
           cat buildozer.spec
-
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME || true
-          echo "Licenses accepted"
-
+          
       - name: Build APK
-        shell: bash
         run: |
-          set -o pipefail
           echo "Starting build..."
-          buildozer -v android debug 2>&1 | tee build_output.log || true
+          buildozer -v android debug 2>&1 | tee build_output.log
           result=$?
           echo "Build exit code: $result"
-          # Show full build log for debugging
-          echo "=== FULL BUILD OUTPUT ==="
-          cat build_output.log | tail -500
-          echo "=== Checking for APK after build ==="
-          find . -name "*.apk" -type f 2>/dev/null | head -5
-          ls -la bin/ 2>/dev/null || echo "No bin/ directory found"
-          find .buildozer -type d -name "outputs" 2>/dev/null || echo "No outputs dirs"
+          cat build_output.log | tail -100
           exit $result
-        timeout-minutes: 90
-
-      - name: Check output
-        if: always()
-        run: |
-          echo "=== Build Output Log (last 200 lines) ==="
-          tail -200 build_output.log 2>/dev/null || echo "No log found"
-          echo ""
-          echo "=== Directory structure ==="
-          ls -la
-          echo ""
-          echo "=== Looking for APK ==="
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-          echo ""
-          echo "=== bin/ directory ==="
-          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
-          echo ""
-          echo "=== .buildozer outputs ==="
-          find .buildozer -name "*.apk" 2>/dev/null || echo "No APK in .buildozer"
-
-      - name: Collect APK files
+        timeout-minutes: 120
+        
+      - name: Collect artifacts
         if: always()
         run: |
           mkdir -p artifacts
-          # Show what's in the project
-          echo "=== Project structure ==="
-          ls -la
-          echo "=== .buildozer structure ==="
-          find .buildozer -type d -maxdepth 3 2>/dev/null || echo "No .buildozer"
-          # Find all APK files
-          echo "=== Searching for APK files ==="
-          find . -name "*.apk" -type f 2>/dev/null
-          find . -name "*.apk" -type f -exec cp -v {} artifacts/ \; 2>/dev/null || true
-          # Copy log file
-          cp build_output.log artifacts/ 2>/dev/null || echo "No build_output.log"
-          # Also copy buildozer's known output paths  
-          cp .buildozer/android/platform/build/dists/windowsremote/build/outputs/apk/debug/*.apk artifacts/ 2>/dev/null || echo "No APK in windowsremote"
-          # Copy .aab too if present
-          find . -name "*.aab" -exec cp -v {} artifacts/ \; 2>/dev/null || true
-          echo "=== Collected artifacts ==="
+          find . -name "*.apk" -o -name "*.aab" | xargs -I {} cp {} artifacts/ 2>/dev/null || true
+          cp build_output.log artifacts/ 2>/dev/null || true
           ls -la artifacts/
-
+          
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
