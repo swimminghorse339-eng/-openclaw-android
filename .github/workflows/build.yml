@@ -41,11 +41,11 @@ jobs:
         run: |
           mkdir -p ~/.buildozer/android/platform
           cd ~/.buildozer/android/platform
-          
+
           # Link system SDK
           rm -rf android-sdk 2>/dev/null || true
           ln -sf /usr/local/lib/android/sdk android-sdk
-          
+
           # Download compatible NDK (25.2.9519653)
           if [ ! -d "android-ndk-r25b" ]; then
             echo "Downloading NDK 25.2.9519653..."
@@ -54,7 +54,7 @@ jobs:
             mv android-ndk-r25c android-ndk-r25b
             rm -f android-ndk-r25c-linux.zip
           fi
-          
+
           # Create tools/bin with wrappers
           mkdir -p android-sdk/tools/bin
           cat > android-sdk/tools/bin/sdkmanager << 'EOF'
@@ -62,7 +62,7 @@ jobs:
           exec /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "$@"
           EOF
           chmod +x android-sdk/tools/bin/sdkmanager
-          
+
           echo "Setup complete"
 
       - name: Create buildozer.spec
@@ -79,7 +79,11 @@ jobs:
           fullscreen = 0
           android.archs = arm64-v8a
           android.permissions = INTERNET
-          
+
+          [android]
+          ndk_path = ~/.buildozer/android/platform/android-ndk-r25b
+          sdk_path = ~/.buildozer/android/platform/android-sdk
+
           [buildozer]
           log_level = 2
           warn_on_root = 1
@@ -92,12 +96,12 @@ jobs:
           unset ANDROID_NDK_HOME
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_LATEST_HOME
-          
+
           # Set SDK to our directory
           export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-          
+
           echo "Building with NDK: $HOME/.buildozer/android/platform/android-ndk-r25b"
           buildozer -v android debug
         timeout-minutes: 120
