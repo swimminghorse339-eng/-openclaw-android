@@ -3,115 +3,135 @@ name: Build Android APK
 on:
   push:
     branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip openjdk-17-jdk build-essential
-          sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev libfreetype6-dev libpng-dev
-          sudo apt-get install -y libx11-dev libxext-dev libxrender-dev
-          sudo apt-get install -y libffi-dev libltdl-dev autoconf automake libtool
-          sudo apt-get install -y texinfo pkg-config
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pip openjdk-17-jdk
+        sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev
+        sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev
+        sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev
+        sudo apt-get install -y libfreetype6-dev libpng-dev
+        sudo apt-get install -y libx11-dev libxext-dev libxrender-dev libtiff5-dev
+        sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+        sudo apt-get install -y zlib1g-dev autoconf automake libtool
 
-      - name: Cache Buildozer
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-v6-${{ hashFiles('**/*.py') }}
-          restore-keys: |
-            ${{ runner.os }}-buildozer-v6-
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        cmdline-tools-version: 12.0
+        packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653"
+        accept-android-sdk-licenses: true
 
-      - name: Install Buildozer
-        run: |
-          pip install buildozer cython setuptools packaging
+    - name: Install Buildozer
+      run: |
+        pip install buildozer cython packaging
 
-      - name: Setup Android SDK and Compatible NDK
-        run: |
-          mkdir -p ~/.buildozer/android/platform
-          cd ~/.buildozer/android/platform
+    - name: Cache buildozer downloads
+      uses: actions/cache@v4
+      with:
+        path: ~/.buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
 
-          # Link system SDK
-          rm -rf android-sdk 2>/dev/null || true
-          ln -sf /usr/local/lib/android/sdk android-sdk
+    - name: Setup Buildozer Environment
+      run: |
+        echo "ANDROID_HOME=$ANDROID_HOME"
+        echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+        # Accept all Android SDK licenses
+        yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
 
-          # Download compatible NDK (25.2.9519653)
-          if [ ! -d "android-ndk-r25b" ]; then
-            echo "Downloading NDK 25.2.9519653..."
-            wget -q --show-progress https://dl.google.com/android/repository/android-ndk-r25c-linux.zip || curl -L -o android-ndk-r25c-linux.zip https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
-            unzip -q android-ndk-r25c-linux.zip
-            mv android-ndk-r25c android-ndk-r25b
-            rm -f android-ndk-r25c-linux.zip
-          fi
+    - name: Create buildozer.spec
+      run: |
+        # Get actual SDK path from android-setup action
+        SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+        echo "Using SDK path: $SDK_PATH"
+        
+        cat > buildozer.spec << ENDOFFILE
+[app]
+title = Windows Remote
+package.name = windowsremote
+package.domain = com.example
+source.dir = .
+version = 0.1
+requirements = python3,kivy,requests,pyjnius,setuptools,packaging
+orientation = portrait
+fullscreen = 0
+android.archs = arm64-v8a
+android.permissions = INTERNET
 
-          # Create tools/bin with wrappers
-          mkdir -p android-sdk/tools/bin
-          cat > android-sdk/tools/bin/sdkmanager << 'EOF'
-          #!/bin/bash
-          exec /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "$@"
-          EOF
-          chmod +x android-sdk/tools/bin/sdkmanager
+[android]
+android.sdk_path = ${SDK_PATH}
+android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653
 
-          echo "Setup complete"
+[buildozer]
+log_level = 2
+warn_on_root = 1
+ENDOFFILE
+        echo "=== buildozer.spec created ==="
+        cat buildozer.spec
 
-      - name: Create buildozer.spec
-        run: |
-          cat > buildozer.spec << 'SPEC'
-          [app]
-          title = Windows Remote
-          package.name = windowsremote
-          package.domain = com.example
-          source.dir = .
-          version = 0.1
-          requirements = python3,kivy,requests,pyjnius,setuptools
-          orientation = portrait
-          fullscreen = 0
-          android.archs = arm64-v8a
-          android.permissions = INTERNET
+    - name: Build APK
+      run: |
+        echo "Starting build..."
+        buildozer android debug 2>&1 | tee build_output.log
+        result=$?
+        echo "Build exit code: $result"
+        # Check if APK was actually created
+        echo "=== Checking for APK after build ==="
+        find . -name "*.apk" -type f 2>/dev/null | head -5
+        ls -la bin/ 2>/dev/null || echo "No bin/ directory found"
+        exit $result
+      timeout-minutes: 90
 
-          [android]
-          ndk_path = ~/.buildozer/android/platform/android-ndk-r25b
-          sdk_path = ~/.buildozer/android/platform/android-sdk
+    - name: Check output
+      if: always()
+      run: |
+        echo "=== Build Output Log (last 200 lines) ==="
+        tail -200 build_output.log 2>/dev/null || echo "No log found"
+        echo ""
+        echo "=== Directory structure ==="
+        ls -la
+        echo ""
+        echo "=== Looking for APK ==="
+        find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+        echo ""
+        echo "=== bin/ directory ==="
+        ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+        echo ""
+        echo "=== .buildozer outputs ==="
+        find .buildozer -name "*.apk" 2>/dev/null || echo "No APK in .buildozer"
 
-          [buildozer]
-          log_level = 2
-          warn_on_root = 1
-          SPEC
+    - name: Collect APK files
+      if: always()
+      run: |
+        mkdir -p artifacts
+        # Find all APK files and copy them
+        find . -name "*.apk" -type f -exec cp {} artifacts/ \; 2>/dev/null || true
+        # Copy log file
+        cp build_output.log artifacts/ 2>/dev/null || true
+        echo "=== Collected artifacts ==="
+        ls -la artifacts/
 
-      - name: Build APK
-        run: |
-          # Clear system NDK env vars to use our downloaded NDK
-          unset ANDROID_NDK
-          unset ANDROID_NDK_HOME
-          unset ANDROID_NDK_ROOT
-          unset ANDROID_NDK_LATEST_HOME
-
-          # Set SDK to our directory
-          export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-
-          echo "Building with NDK: $HOME/.buildozer/android/platform/android-ndk-r25b"
-          buildozer -v android debug
-        timeout-minutes: 120
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: |
-            bin/*.apk
-            .buildozer/android/platform/build/dists/*/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+    - name: Upload APK
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-apk
+        path: artifacts/*
+        if-no-files-found: warn
