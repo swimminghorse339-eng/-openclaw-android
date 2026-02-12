@@ -22,7 +22,6 @@ jobs:
           sudo apt-get install -y python3-pip openjdk-17-jdk build-essential
           sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev libfreetype6-dev libpng-dev
           sudo apt-get install -y libx11-dev libxext-dev libxrender-dev
-          # Build dependencies for libffi and other native libraries
           sudo apt-get install -y libffi-dev libltdl-dev autoconf automake libtool
           sudo apt-get install -y texinfo pkg-config
 
@@ -30,45 +29,45 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-v4-${{ hashFiles('**/*.py') }}
+          key: ${{ runner.os }}-buildozer-v5-${{ hashFiles('**/*.py') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-v4-
+            ${{ runner.os }}-buildozer-v5-
 
       - name: Install Buildozer
         run: |
           pip install buildozer cython setuptools packaging
 
-      - name: Setup Android SDK
+      - name: Setup SDK and NDK for Buildozer
         run: |
-          SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDK_DIR"
-          cd "$SDK_DIR"
+          # Create buildozer's expected SDK directory structure
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
           
-          # Download command line tools
-          if [ ! -f "cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "Downloading Android SDK command line tools..."
-            rm -rf cmdline-tools
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            unzip -q commandlinetools-linux-11076708_latest.zip
-            mv cmdline-tools cmdline-tools-temp
-            mkdir -p cmdline-tools/latest
-            mv cmdline-tools-temp/* cmdline-tools/latest/
-            rmdir cmdline-tools-temp 2>/dev/null || true
-            rm -f commandlinetools-linux-11076708_latest.zip
+          # Link to system Android SDK
+          if [ -d "/usr/local/lib/android/sdk" ]; then
+            echo "Linking system Android SDK..."
+            rm -rf android-sdk 2>/dev/null || true
+            ln -sf /usr/local/lib/android/sdk android-sdk
           fi
           
-          # Create tools/bin directory with wrappers
-          mkdir -p "$SDK_DIR/tools/bin"
-          cat > "$SDK_DIR/tools/bin/sdkmanager" << 'EOF'
-          #!/bin/bash
-          exec "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager" "$@"
-          EOF
-          chmod +x "$SDK_DIR/tools/bin/sdkmanager"
+          # Link to system NDK (using the one that's already installed)
+          NDK_VERSION="27.3.13750724"
+          if [ -d "/usr/local/lib/android/sdk/ndk/${NDK_VERSION}" ]; then
+            echo "Linking system Android NDK ${NDK_VERSION}..."
+            rm -rf android-ndk-r25b 2>/dev/null || true
+            ln -sf /usr/local/lib/android/sdk/ndk/${NDK_VERSION} android-ndk-r25b
+          fi
           
-          # Set environment and install packages
-          export ANDROID_HOME="$SDK_DIR"
-          yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
-          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653" 2>&1 | grep -v "^Loading" || true
+          # Create tools/bin with wrappers for buildozer compatibility
+          mkdir -p android-sdk/tools/bin
+          cat > android-sdk/tools/bin/sdkmanager << 'EOF'
+          #!/bin/bash
+          exec /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "$@"
+          EOF
+          chmod +x android-sdk/tools/bin/sdkmanager
+          
+          echo "=== Setup complete ==="
+          ls -la ~/.buildozer/android/platform/
 
       - name: Create buildozer.spec
         run: |
@@ -88,13 +87,13 @@ jobs:
           [buildozer]
           log_level = 2
           warn_on_root = 1
-          SKIP_CLEANUP = 1
           SPEC
 
       - name: Build APK
         run: |
           export ANDROID_HOME="$HOME/.buildozer/android/platform/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROIDNDK="$HOME/.buildozer/android/platform/android-ndk-r25b"
           buildozer -v android debug
         timeout-minutes: 120
 
