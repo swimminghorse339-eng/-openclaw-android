@@ -23,9 +23,29 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev libfreetype6-dev libpng-dev
           sudo apt-get install -y libx11-dev libxext-dev libxrender-dev
 
+      - name: Cache Buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
       - name: Install Buildozer
         run: |
           pip install buildozer cython setuptools packaging
+
+      - name: Pre-download NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          if [ ! -d "android-ndk-r25b" ]; then
+            echo "Downloading NDK..."
+            wget -q --show-progress https://dl.google.com/android/repository/android-ndk-r25b-linux.zip || curl -L -o android-ndk-r25b-linux.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+            unzip -q android-ndk-r25b-linux.zip
+            rm android-ndk-r25b-linux.zip
+          fi
+          ls -la
 
       - name: Create buildozer.spec
         run: |
@@ -41,24 +61,20 @@ jobs:
           fullscreen = 0
           android.archs = arm64-v8a
           android.permissions = INTERNET
-          android.api = 33
-          android.minapi = 21
-          android.sdk = 33
-          android.ndk = 25.2.9519653
-          android.requirements = build-tools;33.0.2,platforms;android-33
 
           [buildozer]
           log_level = 2
           warn_on_root = 1
+
+          [env]
+          # Pre-downloaded NDK path
+          ANDROID_NDK = ~/.buildozer/android/platform/android-ndk-r25b
           SPEC
 
       - name: Build APK
         run: |
-          export ANDROID_HOME=""
-          export ANDROID_SDK_ROOT=""
-          # Let buildozer download and manage its own SDK
           buildozer -v android debug
-        timeout-minutes: 90
+        timeout-minutes: 120
 
       - name: Upload APK
         if: always()
