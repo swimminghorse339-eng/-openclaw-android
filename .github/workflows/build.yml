@@ -22,14 +22,17 @@ jobs:
           sudo apt-get install -y python3-pip openjdk-17-jdk build-essential
           sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev libfreetype6-dev libpng-dev
           sudo apt-get install -y libx11-dev libxext-dev libxrender-dev
+          # Build dependencies for libffi and other native libraries
+          sudo apt-get install -y libffi-dev libltdl-dev autoconf automake libtool
+          sudo apt-get install -y texinfo pkg-config
 
       - name: Cache Buildozer
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-v3-${{ hashFiles('**/*.py') }}
+          key: ${{ runner.os }}-buildozer-v4-${{ hashFiles('**/*.py') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-v3-
+            ${{ runner.os }}-buildozer-v4-
 
       - name: Install Buildozer
         run: |
@@ -54,37 +57,18 @@ jobs:
             rm -f commandlinetools-linux-11076708_latest.zip
           fi
           
-          # Create tools/bin directory that buildozer expects
+          # Create tools/bin directory with wrappers
           mkdir -p "$SDK_DIR/tools/bin"
-          
-          # Create sdkmanager wrapper in tools/bin
           cat > "$SDK_DIR/tools/bin/sdkmanager" << 'EOF'
           #!/bin/bash
           exec "$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager" "$@"
           EOF
           chmod +x "$SDK_DIR/tools/bin/sdkmanager"
           
-          # Create other tool wrappers
-          for tool in adb fastboot avdmanager; do
-            cat > "$SDK_DIR/tools/bin/$tool" << EOF
-          #!/bin/bash
-          exec "\$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/$tool" "\$@"
-          EOF
-            chmod +x "$SDK_DIR/tools/bin/$tool"
-          done
-          
-          # Accept licenses and install packages
+          # Set environment and install packages
           export ANDROID_HOME="$SDK_DIR"
           yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
-          
-          # Install required components
           "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653" 2>&1 | grep -v "^Loading" || true
-          
-          echo "=== SDK Structure ==="
-          ls -la "$SDK_DIR/"
-          ls -la "$SDK_DIR/tools/bin/" 2>/dev/null || echo "No tools/bin"
-          ls -la "$SDK_DIR/build-tools/" 2>/dev/null || echo "No build-tools yet"
-          ls -la "$SDK_DIR/ndk/" 2>/dev/null || echo "No ndk yet"
 
       - name: Create buildozer.spec
         run: |
@@ -104,6 +88,7 @@ jobs:
           [buildozer]
           log_level = 2
           warn_on_root = 1
+          SKIP_CLEANUP = 1
           SPEC
 
       - name: Build APK
