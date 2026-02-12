@@ -18,66 +18,82 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip
+          sudo apt-get install -y python3-pip openjdk-17-jdk
           sudo apt-get install -y build-essential libssl-dev libffi-dev python3-dev
           sudo apt-get install -y libgl1-mesa-dev libgles2-mesa-dev
           sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev
           sudo apt-get install -y libfreetype6-dev libpng-dev
           sudo apt-get install -y libx11-dev libxext-dev libxrender-dev libtiff5-dev
           sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-          sudo apt-get install -y zlib1g-dev
-          sudo apt-get install -y android-tools-adb
-          sudo apt-get install -y autoconf automake libtool
-          sudo apt-get install -y openjdk-17-jdk
+          sudo apt-get install -y zlib1g-dev autoconf automake libtool
 
       - name: Install Buildozer
         run: |
           pip install buildozer cython packaging
 
+      - name: Cache buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
       - name: Create buildozer.spec
         run: |
-          cat > buildozer.spec << 'EOF'
+          cat > buildozer.spec << 'ENDOFFILE'
           [app]
           title = Windows Remote
           package.name = windowsremote
           package.domain = com.example
           source.dir = .
-          source.include_exts = py,png,jpg,kv,atlas
           version = 0.1
-          requirements = python3,kivy==2.3.0,requests,urllib3,pyjnius,setuptools
+          requirements = python3,kivy,requests,pyjnius,setuptools
           orientation = portrait
           fullscreen = 0
-          android.api = 33
-          android.minapi = 21
-          android.sdk = 33
-          android.ndk = 25b
-          android.enable_androidx = True
-          android.permissions = INTERNET, ACCESS_NETWORK_STATE, WRITE_EXTERNAL_STORAGE
-          android.arch = arm64-v8a
+          android.archs = arm64-v8a
+          android.permissions = INTERNET
 
           [buildozer]
           log_level = 2
           warn_on_root = 1
-          EOF
+          ENDOFFILE
+          echo "=== buildozer.spec created ==="
+          cat buildozer.spec
 
       - name: Build APK
         run: |
-          buildozer android debug || echo "Build completed with warnings"
-        timeout-minutes: 60
-        continue-on-error: true
+          echo "Starting build..."
+          buildozer android debug 2>&1 | tee build_output.log
+          result=$?
+          echo "Build exit code: $result"
+          exit $result
+        timeout-minutes: 90
 
-      - name: Verify Build Output
+      - name: Check output
+        if: always()
         run: |
-          echo "=== Checking for APK files ==="
-          ls -la bin/ 2>/dev/null || echo "No bin directory"
+          echo "=== Build Output Log (last 200 lines) ==="
+          tail -200 build_output.log 2>/dev/null || echo "No log found"
+          echo ""
+          echo "=== Directory structure ==="
+          ls -la
+          echo ""
+          echo "=== Looking for APK ==="
           find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          echo ""
+          echo "=== bin/ directory ==="
+          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: bin/*.apk
+          path: |
+            bin/*.apk
+            build_output.log
           if-no-files-found: warn
