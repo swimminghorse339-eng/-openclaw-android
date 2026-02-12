@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main, master ]
@@ -11,63 +10,74 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-pip openjdk-17-jdk build-essential
-
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        cmdline-tools-version: 12.0
-        packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653"
-
-    - name: Verify SDK setup
-      run: |
-        echo "ANDROID_HOME=$ANDROID_HOME"
-        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-        ls -la $ANDROID_HOME/
-        ls -la $ANDROID_HOME/ndk/ || echo "NDK folder structure:"
-        find $ANDROID_HOME -name "android-ndk*" -type d 2>/dev/null || echo "No NDK found"
-
-    - name: Install Buildozer
-      run: pip install buildozer cython packaging
-
-    - name: Configure buildozer.spec
-      run: |
-        SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-        echo "SDK_PATH=$SDK_PATH"
-        # Replace placeholder paths with actual SDK paths
-        sed -i "s|android.sdk_path = .*|android.sdk_path = ${SDK_PATH}|" buildozer.spec
-        sed -i "s|android.ndk_path = .*|android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653|" buildozer.spec
-        echo "=== Updated buildozer.spec ==="
-        cat buildozer.spec
-
-    - name: Cache buildozer downloads
-      uses: actions/cache@v4
-      with:
-        path: ~/.buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
-
-    - name: Accept SDK licenses
-      run: |
-        yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
-
-    - name: Build APK
-      run: buildozer android debug
-      timeout-minutes: 90
-
-    - name: Upload APK
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-apk
-        path: bin/*.apk
-        if-no-files-found: warn
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip openjdk-17-jdk build-essential
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12.0
+          packages: "platform-tools platforms;android-33 build-tools;36.1.0 ndk;25.2.9519653"
+      
+      - name: Verify SDK setup
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la $ANDROID_HOME/
+          ls -la $ANDROID_HOME/ndk/ || echo "NDK folder structure:"
+          find $ANDROID_HOME -name "android-ndk*" -type d 2>/dev/null || echo "No NDK found"
+      
+      - name: Create sdkmanager wrapper for buildozer
+        run: |
+          # Buildozer expects sdkmanager at tools/bin/sdkmanager
+          mkdir -p $ANDROID_HOME/tools/bin
+          cat > $ANDROID_HOME/tools/bin/sdkmanager << 'EOF'
+          #!/bin/bash
+          exec $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager "$@"
+          EOF
+          chmod +x $ANDROID_HOME/tools/bin/sdkmanager
+          echo "Created sdkmanager wrapper at $ANDROID_HOME/tools/bin/sdkmanager"
+      
+      - name: Install Buildozer
+        run: pip install buildozer cython packaging
+      
+      - name: Configure buildozer.spec
+        run: |
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "SDK_PATH=$SDK_PATH"
+          # Replace placeholder paths with actual SDK paths
+          sed -i "s|android.sdk_path = .*|android.sdk_path = ${SDK_PATH}|" buildozer.spec
+          sed -i "s|android.ndk_path = .*|android.ndk_path = ${SDK_PATH}/ndk/25.2.9519653|" buildozer.spec
+          echo "=== Updated buildozer.spec ==="
+          cat buildozer.spec
+      
+      - name: Cache buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+      
+      - name: Accept SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/12.0/bin/sdkmanager --licenses || true
+      
+      - name: Build APK
+        run: buildozer android debug
+        timeout-minutes: 90
+      
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: bin/*.apk
+          if-no-files-found: warn
