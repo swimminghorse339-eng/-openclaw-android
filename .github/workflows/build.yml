@@ -90,6 +90,10 @@ jobs:
           buildozer android debug 2>&1 | tee build_output.log
           result=$?
           echo "Build exit code: $result"
+          # Check if APK was actually created
+          echo "=== Checking for APK after build ==="
+          find . -name "*.apk" -type f 2>/dev/null | head -5
+          ls -la bin/ 2>/dev/null || echo "No bin/ directory found"
           exit $result
         timeout-minutes: 90
 
@@ -107,13 +111,25 @@ jobs:
           echo ""
           echo "=== bin/ directory ==="
           ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+          echo ""
+          echo "=== .buildozer outputs ==="
+          find .buildozer -name "*.apk" 2>/dev/null || echo "No APK in .buildozer"
+
+      - name: Collect APK files
+        if: always()
+        run: |
+          mkdir -p artifacts
+          # Find all APK files and copy them
+          find . -name "*.apk" -type f -exec cp {} artifacts/ \; 2>/dev/null || true
+          # Copy log file
+          cp build_output.log artifacts/ 2>/dev/null || true
+          echo "=== Collected artifacts ==="
+          ls -la artifacts/
 
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: |
-            bin/*.apk
-            build_output.log
+          path: artifacts/*
           if-no-files-found: warn
