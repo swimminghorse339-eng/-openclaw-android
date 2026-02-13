@@ -88,17 +88,33 @@ jobs:
           ANDROID_SDK_HOME: ""
           ANDROID_SDK_ROOT: ""
 
+      - name: Find and Upload APK
+        if: always()
+        run: |
+          echo "=== Looking for APK files ==="
+          find . -name "*.apk" -type f 2>/dev/null
+          echo ""
+          echo "=== Checking bin directory ==="
+          ls -la bin/ 2>/dev/null || echo "No bin directory"
+          echo ""
+          echo "=== Checking ~/.buildozer ==="
+          find ~/.buildozer -name "*.apk" 2>/dev/null | head -5 || echo "No APK in buildozer"
+          echo ""
+          # Copy APK to artifacts directory
+          mkdir -p artifacts
+          APK_PATH=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$APK_PATH" ]; then
+            cp "$APK_PATH" artifacts/
+            echo "Copied APK: $APK_PATH"
+          else
+            echo "No APK found!"
+            exit 1
+          fi
+
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: bin/*.apk
+          path: artifacts/*.apk
           if-no-files-found: warn
-
-      - name: List build artifacts
-        if: always()
-        run: |
-          echo "Looking for APK files..."
-          find . -name "*.apk" -type f -ls 2>/dev/null || echo "No APK found"
-          ls -la bin/ 2>/dev/null || echo "No bin directory"
