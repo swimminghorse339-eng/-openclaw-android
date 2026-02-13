@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      # Force buildozer to use its own NDK/SDK, not system ones
       ANDROID_NDK: ""
       ANDROID_NDK_HOME: ""
       ANDROID_NDK_ROOT: ""
@@ -57,69 +56,46 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      - name: Debug environment and Build APK
+      - name: Build APK
         run: |
-          echo "=== Environment Debug ==="
-          echo "ANDROID_NDK: '$ANDROID_NDK'"
-          echo "ANDROID_NDK_HOME: '$ANDROID_NDK_HOME'"
-          echo "ANDROID_NDK_ROOT: '$ANDROID_NDK_ROOT'"
-          echo "PATH: $PATH"
-          echo ""
-          echo "=== Listing buildozer directory ==="
-          ls -la ~/.buildozer/android/platform/ 2>/dev/null || echo "No platform dir yet"
-          echo ""
-          echo "=== Python version ==="
-          python --version
-          echo ""
           echo "=== Starting build ==="
-          # Auto-accept licenses via env var, then build
           export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$ANDROID_SDK_HOME/licenses"
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
           buildozer android debug 2>&1 | tee build.log
           echo ""
-          echo "=== Build completed with exit code: ${PIPESTATUS[0]} ==="
+          echo "=== Build finished ==="
+          echo "Looking for APK in all locations..."
+          find . -name "*.apk" -type f 2>/dev/null | head -20
           echo ""
-          echo "=== Searching for APK ==="
-          find . -name "*.apk" -type f 2>/dev/null
-          echo ""
-          echo "Looking in ~/.buildozer:"
-          find ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -5
-          echo ""
-          echo "All directories with 'build' in name:"
-          find . -type d -name "*build*" 2>/dev/null | head -10
+          echo "Looking in home directory..."
+          find ~ -name "*.apk" -type f 2>/dev/null | grep -v "Permission denied" | head -20
         timeout-minutes: 85
-        env:
-          ANDROID_NDK: ""
-          ANDROID_NDK_HOME: ""
-          ANDROID_NDK_ROOT: ""
-          ANDROID_SDK: ""
-          ANDROID_SDK_HOME: ""
-          ANDROID_SDK_ROOT: ""
 
-      - name: Find and upload APK
-        if: always()
-        run: |
-          echo "=== Locating APK ==="
-          # Search for APK everywhere
-          APK_PATH=$(find . ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -1)
-          if [ -n "$APK_PATH" ]; then
-            echo "Found APK: $APK_PATH"
-            mkdir -p artifacts
-            cp "$APK_PATH" artifacts/
-            ls -lh artifacts/
-          else
-            echo "No APK found"
-          fi
-
-      - name: Upload APK
-        if: always()
+      - name: Upload APK from bin
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: |
-            artifacts/*.apk
-            bin/*.apk
-            **/*.apk
-          if-no-files-found: warn
+          path: bin/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload APK from buildozer
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-buildozer
+          path: ~/.buildozer/**/*.apk
+          if-no-files-found: ignore
+
+      - name: Debug APK location
+        if: always()
+        run: |
+          echo "=== APK Search Debug ==="
+          echo "Current dir: $(pwd)"
+          ls -la
+          echo ""
+          echo "bin/ directory:"
+          ls -la bin/ 2>/dev/null || echo "No bin/"
+          echo ""
+          echo "All APK files:"
+          find ~ -name "*.apk" 2>/dev/null | head -10
