@@ -58,8 +58,12 @@ jobs:
 
       - name: Build APK
         run: |
-          # Run build with auto-license acceptance
-          yes | buildozer android debug
+          # Auto-accept licenses via env var, then build
+          export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
+          mkdir -p "$ANDROID_SDK_HOME/licenses"
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
+          buildozer android debug
         timeout-minutes: 85
         env:
           ANDROID_NDK: ""
