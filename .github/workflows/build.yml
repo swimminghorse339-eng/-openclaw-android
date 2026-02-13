@@ -1,4 +1,5 @@
 name: Build Android APK
+
 on:
   push:
     branches: [ main, master ]
@@ -48,7 +49,15 @@ jobs:
         run: |
           pip install buildozer cython packaging
 
-      - name: Debug environment and Build APK (no cache)
+      - name: Cache buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
+      - name: Debug environment and Build APK
         run: |
           echo "=== Environment Debug ==="
           echo "ANDROID_NDK: '$ANDROID_NDK'"
@@ -69,29 +78,17 @@ jobs:
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
           buildozer android debug 2>&1 | tee build.log
-          BUILD_EXIT=${PIPESTATUS[0]}
           echo ""
-          echo "=== Build completed with exit code: $BUILD_EXIT ==="
+          echo "=== Build completed with exit code: ${PIPESTATUS[0]} ==="
           echo ""
-          echo "=== Searching for APK after build ==="
-          echo "Current directory: $(pwd)"
-          echo ""
-          echo "Files in current dir:"
-          ls -la
-          echo ""
-          echo "Looking for bin/ directory:"
-          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
-          echo ""
-          echo "Looking for APK anywhere:"
+          echo "=== Searching for APK ==="
           find . -name "*.apk" -type f 2>/dev/null
           echo ""
-          echo "Looking in ~/.buildozer for APK:"
-          find ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -10
+          echo "Looking in ~/.buildozer:"
+          find ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -5
           echo ""
-          echo "Buildozer.spec content:"
-          cat buildozer.spec 2>/dev/null || echo "No buildozer.spec"
-          echo ""
-          exit $BUILD_EXIT
+          echo "All directories with 'build' in name:"
+          find . -type d -name "*build*" 2>/dev/null | head -10
         timeout-minutes: 85
         env:
           ANDROID_NDK: ""
@@ -101,13 +98,28 @@ jobs:
           ANDROID_SDK_HOME: ""
           ANDROID_SDK_ROOT: ""
 
+      - name: Find and upload APK
+        if: always()
+        run: |
+          echo "=== Locating APK ==="
+          # Search for APK everywhere
+          APK_PATH=$(find . ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$APK_PATH" ]; then
+            echo "Found APK: $APK_PATH"
+            mkdir -p artifacts
+            cp "$APK_PATH" artifacts/
+            ls -lh artifacts/
+          else
+            echo "No APK found"
+          fi
+
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: |
+            artifacts/*.apk
             bin/*.apk
-            .buildozer/android/app/build/outputs/apk/**/*.apk
             **/*.apk
           if-no-files-found: warn
