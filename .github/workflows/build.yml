@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -36,10 +36,40 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-buildozer-
 
+    - name: Set up Android SDK
+      run: |
+        echo "Setting up Android SDK..."
+        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
+        mkdir -p "$ANDROID_SDK_HOME"
+        cd "$ANDROID_SDK_HOME"
+        
+        # Download command line tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+        unzip -q commandlinetools-linux-11076708_latest.zip
+        mkdir -p cmdline-tools/latest
+        mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+        
+        # Set up environment
+        export PATH="$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$PATH"
+        
+        # Install sdkmanager tools
+        yes | sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+        
+        # Accept licenses
+        yes | sdkmanager --licenses || true
+        
+        # Create the tools/bin directory structure that buildozer expects
+        mkdir -p "$ANDROID_SDK_HOME/tools/bin"
+        ln -sf "$ANDROID_SDK_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_HOME/tools/bin/sdkmanager"
+        
+        echo "Android SDK setup complete"
+
     - name: Build Android APK
       run: |
         echo "Starting APK build..."
         export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
+        export PATH="$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$PATH"
+        
         mkdir -p "$ANDROID_SDK_HOME/licenses"
         echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
         echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
