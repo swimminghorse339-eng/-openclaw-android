@@ -44,52 +44,43 @@ jobs:
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
           
-          # Clean and build
+          # Clean and build with proper error handling
           rm -rf bin/ .buildozer/android/app/build/
-          buildozer android debug 2>&1 | tee build.log
           
-          echo ""
-          echo "=== Build Completed ==="
-          echo "Exit code: ${PIPESTATUS[0]}"
+          # Run buildozer with immediate error detection
+          echo "=== Starting buildozer android debug ==="
+          buildozer android debug 2>&1 | tee build.log || EXIT_CODE=$?
+          echo "Exit code was: ${EXIT_CODE:-0}"
+          
+          # Check build.log for critical errors
+          echo "=== Build log analysis ==="
+          if grep -i "error\|failed\|exception" build.log; then
+            echo "⚠️ Errors detected in build.log"
+          fi
+          
+          # Show directory tree of .buildozer
+          echo "=== .buildozer directory structure ==="
+          ls -la .buildozer/android/app/ 2>/dev/null || echo "No app dir"
+          ls -la bin/ 2>/dev/null || echo "No bin dir"
         timeout-minutes: 85
 
-      - name: Find and verify APK
+      - name: Find APK and upload
         run: |
           echo "=== Searching for APK ==="
           
-          # Check all possible locations
-          APK_PATH=""
+          # Find APK anywhere
+          APK_FILE=$(find . ~ -name "*.apk" -type f 2>/dev/null | head -1)
           
-          # Location 1: bin/
-          if [ -f "bin/*.apk" ]; then
-            APK_PATH=$(ls bin/*.apk | head -1)
-            echo "Found APK in bin/: $APK_PATH"
-          fi
-          
-          # Location 2: .buildozer/android/app/build/outputs/apk/debug/
-          BUILD_APK=$(find .buildozer -name "*.apk" -type f 2>/dev/null | head -1)
-          if [ -n "$BUILD_APK" ]; then
-            APK_PATH="$BUILD_APK"
-            echo "Found APK in .buildozer: $APK_PATH"
-          fi
-          
-          # Location 3: ~/android_remote/bin/
-          if [ -z "$APK_PATH" ] && [ -f "$HOME/android_remote/bin/*.apk" ]; then
-            APK_PATH=$(ls $HOME/android_remote/bin/*.apk | head -1)
-            echo "Found APK in home: $APK_PATH"
-          fi
-          
-          if [ -n "$APK_PATH" ]; then
-            echo "APK exists: $APK_PATH"
-            ls -lh "$APK_PATH"
-            cp "$APK_PATH" ./app-debug.apk
+          if [ -n "$APK_FILE" ]; then
+            echo "Found APK: $APK_FILE"
+            ls -lh "$APK_FILE"
+            cp "$APK_FILE" ./app-debug.apk
+            echo "APK_PATH=./app-debug.apk" >> $GITHUB_OUTPUT
             echo "APK_SIZE=$(stat -c%s ./app-debug.apk)" >> $GITHUB_ENV
           else
             echo "❌ NO APK FOUND!"
-            echo "Contents of bin/:"
-            ls -la bin/ 2>/dev/null || echo "No bin/"
-            echo "Contents of .buildozer/:"
-            find .buildozer -name "*.apk" 2>/dev/null || echo "No APK in buildozer"
+            echo "=== build.log tail (last 50 lines) ==="  
+            tail -50 build.log || true
             exit 1
           fi
 
