@@ -9,14 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      ANDROID_NDK: ""
-      ANDROID_NDK_HOME: ""
-      ANDROID_NDK_ROOT: ""
-      ANDROID_SDK: ""
-      ANDROID_SDK_HOME: ""
-      ANDROID_SDK_ROOT: ""
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,25 +19,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Clear conflicting env vars
-        run: |
-          echo "Clearing system Android SDK/NDK env vars..."
-          unset ANDROID_NDK
-          unset ANDROID_NDK_HOME
-          unset ANDROID_NDK_ROOT
-          unset ANDROID_SDK
-          unset ANDROID_SDK_HOME
-          unset ANDROID_SDK_ROOT
-          echo "ANDROID_NDK: $ANDROID_NDK"
-          echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
-          echo "ANDROID_NDK_ROOT: $ANDROID_NDK_ROOT"
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip
 
-      - name: Install Buildozer
+      - name: Install Buildozer & dependencies
         run: |
           pip install buildozer cython packaging
 
@@ -52,50 +32,70 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      - name: Build APK
+      - name: Build Android APK
         run: |
-          echo "=== Starting build ==="
+          echo "Starting APK build..."
           export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$ANDROID_SDK_HOME/licenses"
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
+          
+          # Clean and build
+          rm -rf bin/ .buildozer/android/app/build/
           buildozer android debug 2>&1 | tee build.log
+          
           echo ""
-          echo "=== Build finished ==="
-          echo "Looking for APK in all locations..."
-          find . -name "*.apk" -type f 2>/dev/null | head -20
-          echo ""
-          echo "Looking in home directory..."
-          find ~ -name "*.apk" -type f 2>/dev/null | grep -v "Permission denied" | head -20
+          echo "=== Build Completed ==="
+          echo "Exit code: ${PIPESTATUS[0]}"
         timeout-minutes: 85
 
-      - name: Upload APK from bin
+      - name: Find and verify APK
+        run: |
+          echo "=== Searching for APK ==="
+          
+          # Check all possible locations
+          APK_PATH=""
+          
+          # Location 1: bin/
+          if [ -f "bin/*.apk" ]; then
+            APK_PATH=$(ls bin/*.apk | head -1)
+            echo "Found APK in bin/: $APK_PATH"
+          fi
+          
+          # Location 2: .buildozer/android/app/build/outputs/apk/debug/
+          BUILD_APK=$(find .buildozer -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -n "$BUILD_APK" ]; then
+            APK_PATH="$BUILD_APK"
+            echo "Found APK in .buildozer: $APK_PATH"
+          fi
+          
+          # Location 3: ~/android_remote/bin/
+          if [ -z "$APK_PATH" ] && [ -f "$HOME/android_remote/bin/*.apk" ]; then
+            APK_PATH=$(ls $HOME/android_remote/bin/*.apk | head -1)
+            echo "Found APK in home: $APK_PATH"
+          fi
+          
+          if [ -n "$APK_PATH" ]; then
+            echo "APK exists: $APK_PATH"
+            ls -lh "$APK_PATH"
+            cp "$APK_PATH" ./app-debug.apk
+            echo "APK_SIZE=$(stat -c%s ./app-debug.apk)" >> $GITHUB_ENV
+          else
+            echo "❌ NO APK FOUND!"
+            echo "Contents of bin/:"
+            ls -la bin/ 2>/dev/null || echo "No bin/"
+            echo "Contents of .buildozer/:"
+            find .buildozer -name "*.apk" 2>/dev/null || echo "No APK in buildozer"
+            exit 1
+          fi
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: bin/*.apk
-          if-no-files-found: ignore
-
-      - name: Upload APK from buildozer
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk-buildozer
-          path: ~/.buildozer/**/*.apk
-          if-no-files-found: ignore
-
-      - name: Debug APK location
-        if: always()
-        run: |
-          echo "=== APK Search Debug ==="
-          echo "Current dir: $(pwd)"
-          ls -la
-          echo ""
-          echo "bin/ directory:"
-          ls -la bin/ 2>/dev/null || echo "No bin/"
-          echo ""
-          echo "All APK files:"
-          find ~ -name "*.apk" 2>/dev/null | head -10
+          path: app-debug.apk
+          if-no-files-found: error
