@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install system dependencies
         run: |
@@ -26,7 +26,7 @@ jobs:
 
       - name: Install Buildozer & dependencies
         run: |
-          pip install buildozer cython packaging setuptools distutils-utils
+          pip install buildozer cython packaging setuptools
 
       - name: Cache buildozer downloads
         uses: actions/cache@v4
