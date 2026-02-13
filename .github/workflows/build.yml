@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main, master ]
@@ -9,7 +8,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    
+    env:
+      # Force buildozer to use its own NDK/SDK, not system ones
+      ANDROID_NDK: ""
+      ANDROID_NDK_HOME: ""
+      ANDROID_NDK_ROOT: ""
+      ANDROID_SDK: ""
+      ANDROID_SDK_HOME: ""
+      ANDROID_SDK_ROOT: ""
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,6 +25,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Clear conflicting env vars
+        run: |
+          echo "Clearing system Android SDK/NDK env vars..."
+          unset ANDROID_NDK
+          unset ANDROID_NDK_HOME
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_SDK
+          unset ANDROID_SDK_HOME
+          unset ANDROID_SDK_ROOT
+          echo "ANDROID_NDK: $ANDROID_NDK"
+          echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
+          echo "ANDROID_NDK_ROOT: $ANDROID_NDK_ROOT"
 
       - name: Install system dependencies
         run: |
@@ -36,20 +56,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      - name: Pre-accept Android SDK licenses
+      - name: Build APK
         run: |
-          # Create sdk/licenses directory and accept all licenses
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo "84831b9409646a918e30573bab4c9c91346d8abd" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-          echo "d975f751698a77b662f1254ddbeed3901e976f5a" > ~/.buildozer/android/platform/android-sdk/licenses/intel-android-extra-license
-          echo "Accepting Android SDK licenses..."
-          yes | ~/.buildozer/android/platform/android-sdk/cmdline-tools/*/bin/sdkmanager --licenses || true
-
-      - name: Build APK (auto-download SDK)
-        run: |
-          buildozer android debug
+          # Run build with auto-license acceptance
+          yes | buildozer android debug
         timeout-minutes: 85
+        env:
+          ANDROID_NDK: ""
+          ANDROID_NDK_HOME: ""
+          ANDROID_NDK_ROOT: ""
+          ANDROID_SDK: ""
+          ANDROID_SDK_HOME: ""
+          ANDROID_SDK_ROOT: ""
 
       - name: Upload APK
         if: always()
@@ -63,5 +81,5 @@ jobs:
         if: always()
         run: |
           echo "Looking for APK files..."
-          find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+          find . -name "*.apk" -type f -ls 2>/dev/null || echo "No APK found"
           ls -la bin/ 2>/dev/null || echo "No bin directory"
