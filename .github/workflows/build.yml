@@ -24,9 +24,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip
 
+      - name: Verify Python version
+        run: |
+          python --version
+          python3 --version || true
+          pip --version
+          
       - name: Install Buildozer & dependencies
         run: |
-          pip install buildozer cython packaging setuptools
+          # Use explicit Python 3.10 to install
+          python3.10 -m pip install --upgrade pip
+          python3.10 -m pip install buildozer cython packaging setuptools
+          # Verify buildozer uses correct Python
+          which buildozer
+          head -1 $(which buildozer)
 
       - name: Cache buildozer downloads
         uses: actions/cache@v4
@@ -47,9 +58,9 @@ jobs:
           # Clean and build with proper error handling
           rm -rf bin/ .buildozer/android/app/build/
           
-          # Run buildozer with immediate error detection
-          echo "=== Starting buildozer android debug ==="
-          buildozer android debug 2>&1 | tee build.log || EXIT_CODE=$?
+          # Run buildozer with Python 3.10
+          echo "=== Starting buildozer android debug with Python 3.10 ==="
+          python3.10 -m buildozer android debug 2>&1 | tee build.log || EXIT_CODE=$?
           echo "Exit code was: ${EXIT_CODE:-0}"
           
           # Check build.log for critical errors
