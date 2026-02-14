@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main, master ]
@@ -9,7 +8,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,83 +17,79 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Python 3.10 distutils
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3.10-distutils || echo "distutils install attempted"
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip
+          sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libffi-dev
 
-      - name: Verify Python and distutils
+      - name: Create Python 3.10 venv for buildozer
         run: |
-          python3.10 --version
-          python3.10 -c "import distutils; print('distutils OK')" || echo "distutils MISSING"
-          pip --version
-          
-      - name: Install Buildozer & dependencies
-        run: |
-          # Use explicit Python 3.10 to install
-          python3.10 -m pip install --upgrade pip
-          python3.10 -m pip install buildozer cython packaging setuptools
-          # Verify buildozer uses correct Python
-          which buildozer
-          head -1 $(which buildozer)
+          # Create persistent venv
+          python3.10 -m venv ~/.venv-buildozer
+          source ~/.venv-buildozer/bin/activate
+          pip install --upgrade pip setuptools wheel
+          pip install buildozer cython packaging
+          # Verify installation
+          which python
+          python --version
+          pip list | grep buildozer
 
       - name: Cache buildozer downloads
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('**/*.py') }}-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-buildozer-py310-${{ hashFiles('**/*.py') }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-
+            ${{ runner.os }}-buildozer-py310-
 
       - name: Build Android APK
         run: |
-          echo "Starting APK build..."
+          echo "Starting APK build with Python 3.10 venv..."
+          source ~/.venv-buildozer/bin/activate
+          
+          # Set environment
           export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
           mkdir -p "$ANDROID_SDK_HOME/licenses"
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
           
-          # Clean and build with proper error handling
+          # Clean previous builds
           rm -rf bin/ .buildozer/android/app/build/
           
-          # Run buildozer with Python 3.10
-          echo "=== Starting buildozer android debug with Python 3.10 ==="
-          python3.10 -m buildozer android debug 2>&1 | tee build.log || EXIT_CODE=$?
-          echo "Exit code was: ${EXIT_CODE:-0}"
+          # Run buildozer from venv
+          echo "=== Starting buildozer android debug ==="
+          python -m buildozer android debug 2>&1 | tee build.log || EXIT_CODE=$?
+          echo "Exit code: ${EXIT_CODE:-0}"
           
-          # Check build.log for critical errors
+          # Check for errors
           echo "=== Build log analysis ==="
-          if grep -i "error\|failed\|exception" build.log; then
-            echo "⚠️ Errors detected in build.log"
+          if grep -i "error\|failed\|exception" build.log | head -20; then
+            echo "⚠️ Errors detected"
           fi
           
-          # Show directory tree of .buildozer
-          echo "=== .buildozer directory structure ==="
-          ls -la .buildozer/android/app/ 2>/dev/null || echo "No app dir"
+          # Show directories
           ls -la bin/ 2>/dev/null || echo "No bin dir"
+          ls -la ~/.buildozer/android/app/ 2>/dev/null || echo "No app dir in .buildozer"
         timeout-minutes: 85
 
       - name: Find APK and upload
         run: |
           echo "=== Searching for APK ==="
-          
-          # Find APK anywhere
-          APK_FILE=$(find . ~ -name "*.apk" -type f 2>/dev/null | head -1)
+          # Find APK
+          APK_FILE=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
+          if [ -z "$APK_FILE" ]; then
+            APK_FILE=$(find ~ -name "*.apk" -path "*/.buildozer/*" -type f 2>/dev/null | head -1)
+          fi
           
           if [ -n "$APK_FILE" ]; then
-            echo "Found APK: $APK_FILE"
+            echo "✅ FOUND APK: $APK_FILE"
             ls -lh "$APK_FILE"
             cp "$APK_FILE" ./app-debug.apk
             echo "APK_PATH=./app-debug.apk" >> $GITHUB_OUTPUT
             echo "APK_SIZE=$(stat -c%s ./app-debug.apk)" >> $GITHUB_ENV
           else
             echo "❌ NO APK FOUND!"
-            echo "=== build.log tail (last 50 lines) ==="  
+            echo "=== build.log last 50 lines ==="
             tail -50 build.log || true
             exit 1
           fi
