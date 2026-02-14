@@ -22,11 +22,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip
-
-    - name: Install Buildozer & dependencies
-      run: |
-        pip install buildozer cython packaging setuptools
+        sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip wget
 
     - name: Cache buildozer downloads
       uses: actions/cache@v4
@@ -36,45 +32,39 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-buildozer-
 
-    - name: Set up Android SDK
+    - name: Pre-setup Android SDK for buildozer
       run: |
-        echo "Setting up Android SDK..."
+        # Buildozer uses this exact path
         export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
-        mkdir -p "$ANDROID_SDK_HOME"
-        cd "$ANDROID_SDK_HOME"
+        mkdir -p "$ANDROID_SDK_HOME/licenses"
         
-        # Download command line tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-        unzip -q commandlinetools-linux-11076708_latest.zip
-        mkdir -p cmdline-tools/latest
-        mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+        # Accept ALL licenses by pre-creating the license files
+        # These are the standard Android SDK license hashes
+        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
+        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
+        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
+        echo "504667f4c0de7af1a5731f33b62b0b6fd6d7d0a5" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
+        echo "859f17b9c4a704c4ebe0e6fd8b4c1e42890b74a8" > "$ANDROID_SDK_HOME/licenses/android-googletv-license"
+        echo "6019a0942bdd8dc1346c1f5b54f6f24e9ab6f5de" > "$ANDROID_SDK_HOME/licenses/android-sdk-arm-dbt-license"
+        echo "33b6a2b64607f11b759f320ef9dff4ae5c47d97a" > "$ANDROID_SDK_HOME/licenses/google-gdk-license"
+        echo "e9a94beda7853a8347c5f1eab3805d60ef5f58e3" > "$ANDROID_SDK_HOME/licenses/intel-android-extra-license"
+        echo "8933bad161af4178b1185d1a37fbf41ea5269c55" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
         
-        # Set up environment
-        export PATH="$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$PATH"
-        
-        # Install sdkmanager tools
-        yes | sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.0"
-        
-        # Accept licenses
-        yes | sdkmanager --licenses || true
-        
-        # Create the tools/bin directory structure that buildozer expects
-        mkdir -p "$ANDROID_SDK_HOME/tools/bin"
-        ln -sf "$ANDROID_SDK_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_HOME/tools/bin/sdkmanager"
-        
-        echo "Android SDK setup complete"
+        echo "=== Pre-created license files ==="
+        ls -la "$ANDROID_SDK_HOME/licenses/"
+        cat "$ANDROID_SDK_HOME/licenses/android-sdk-license" 2>/dev/null || echo "No android-sdk-license"
+
+    - name: Install Buildozer & dependencies
+      run: |
+        pip install buildozer cython packaging setuptools
 
     - name: Build Android APK
+      timeout-minutes: 85
       run: |
+        set -e
         echo "Starting APK build..."
-        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
-        export PATH="$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$PATH"
         
-        mkdir -p "$ANDROID_SDK_HOME/licenses"
-        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
-        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
-        
-        # Clean and build with proper error handling
+        # Clean any previous attempts
         rm -rf bin/ .buildozer/android/app/build/
         
         # Run buildozer with proper error detection using pipefail
@@ -84,35 +74,37 @@ jobs:
         EXIT_CODE=${PIPESTATUS[0]}
         echo "Exit code was: $EXIT_CODE"
         
-        # Check build.log for critical errors
-        echo "=== Build log analysis ==="
-        if grep -i "error\|failed\|exception" build.log; then
-          echo "⚠️ Errors detected in build.log"
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "Build failed with exit code $EXIT_CODE"
+          tail -100 build.log
+          exit $EXIT_CODE
         fi
-        
-        # Show directory tree of .buildozer
-        echo "=== .buildozer directory structure ==="
-        ls -la .buildozer/android/app/ 2>/dev/null || echo "No app dir"
-        ls -la bin/ 2>/dev/null || echo "No bin dir"
-      timeout-minutes: 85
 
-    - name: Find APK and upload
+    - name: Find and verify APK
       run: |
         echo "=== Searching for APK ==="
         
-        # Find APK anywhere
-        APK_FILE=$(find . ~ -name "*.apk" -type f 2>/dev/null | head -1)
+        # Find APK anywhere in buildozer output
+        APK_FILE=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
+        
+        if [ -z "$APK_FILE" ]; then
+            # Also check in common locations
+            APK_FILE=$(find ~ -name "*.apk" -path "*/.buildozer/*" 2>/dev/null | head -1)
+        fi
         
         if [ -n "$APK_FILE" ]; then
-          echo "Found APK: $APK_FILE"
+          echo "✅ Found APK: $APK_FILE"
           ls -lh "$APK_FILE"
           cp "$APK_FILE" ./app-debug.apk
-          echo "APK_PATH=./app-debug.apk" >> $GITHUB_OUTPUT
-          echo "APK_SIZE=$(stat -c%s ./app-debug.apk)" >> $GITHUB_ENV
+          echo "APK copied to ./app-debug.apk"
         else
           echo "❌ NO APK FOUND!"
-          echo "=== build.log tail (last 50 lines) ===" 
-          tail -50 build.log || true
+          echo "=== Listing bin/ directory ==="
+          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+          echo "=== Listing .buildozer/android/app/ ==="
+          ls -la .buildozer/android/app/ 2>/dev/null || echo "No app directory"
+          echo "=== build.log tail (last 100 lines) ==="
+          tail -100 build.log || true
           exit 1
         fi
 
