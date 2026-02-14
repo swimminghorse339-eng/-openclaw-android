@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Pin to older Ubuntu for stability
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v4
@@ -16,33 +16,19 @@ jobs:
     - name: Install
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libncurses5
+        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libncurses5  # ncurses5 works on 22.04
     - name: Build
       run: |
         export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
         export PATH="$JAVA_HOME/bin:$PATH"
         python3.10 -m pip install --user buildozer cython
         export PATH="$HOME/.local/bin:$PATH"
-        
-        # Debug Java
-        echo "JAVA_HOME=$JAVA_HOME"
-        java -version
-        
-        # Build with full log
-        buildozer android debug 2>&1 | tee build.log || echo "BUILD_EXIT=$?"
-        
-    - name: Debug Output
+        buildozer android debug 2>&1 | tee build.log
+    - name: Find APK
       if: always()
       run: |
-        echo "=== Last 50 lines of build.log ==="
-        tail -50 build.log
-        echo "=== Looking for APK ==="
-        find ~/.buildozer -name "*.apk" 2>/dev/null | head -5
-        find . -name "*.apk" 2>/dev/null | head -5
-    - name: Stage APK
-      run: |
-        APK=$(find ~/.buildozer -name "*.apk" 2>/dev/null | head -1)
-        [ -n "$APK" ] && cp "$APK" app.apk && ls -lh app.apk
+        find ~/.buildozer -name "*.apk" -exec cp {} app.apk \; 2>/dev/null || true
+        ls -la app.apk 2>/dev/null || echo "No APK yet"
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
