@@ -19,15 +19,35 @@ jobs:
         sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip
     - name: Build APK
       run: |
+        # Install buildozer
         python3.10 -m pip install --user buildozer cython
         export PATH="$HOME/.local/bin:$PATH"
+        
+        # Build with proper exit code capture
+        set -e
+        echo "=== Starting build at $(date) ==="
         buildozer android debug 2>&1 | tee build.log
-        echo "====== APK SEARCH ========"
-        ls -la bin/ || echo "No bin dir"
-        find . -name "*.apk" -type f 2>/dev/null | head -5
-    - name: Upload APK
+        BUILD_EXIT=${PIPESTATUS[0]}
+        echo "Build exit code: $BUILD_EXIT"
+        
+        # Search for APK
+        echo "=== Searching for APK ==="
+        ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+        find . -name "*.apk" -type f 2>/dev/null
+        find ~ -name "*.apk" -path "*/.buildozer/*" 2>/dev/null
+        
+        # Copy if found
+        find . -name "*.apk" -exec cp {} app.apk \; || true
+        ls -la app.apk 2>/dev/null || echo "No app.apk created"
+        
+        # Hard check
+        if [ ! -f app.apk ]; then
+          echo "ERROR: APK not found!"
+          exit 1
+        fi
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
-        path: bin/**/*.apk
+        path: app.apk
         if-no-files-found: error
