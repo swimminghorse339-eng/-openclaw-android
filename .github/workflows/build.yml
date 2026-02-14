@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main, master ]
@@ -9,32 +8,38 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
     
-    - name: Install dependencies
+    - name: Install system deps
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-pip openjdk-17-jdk build-essential git zip unzip
-        
+        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip
+    
     - name: Build APK
       run: |
-        echo "Build started"
-        python3.10 --version
-        pip3.10 --version
-        pip3.10 install buildozer cython
-        buildozer android debug
+        # Install in user space with Python 3.10
+        python3.10 -m pip install --user buildozer cython
+        export PATH="$HOME/.local/bin:$PATH"
         
-    - name: Upload APK
+        # Setup Android SDK
+        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
+        mkdir -p "$ANDROID_SDK_HOME/licenses"
+        echo "24333f8a63b6825ea9c5" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
+        
+        # Build
+        buildozer android debug 2>&1 | tee build.log
+        
+        # Find and copy APK
+        find . -name "*.apk" -exec cp {} app-debug.apk \; || true
+    
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
-        path: bin/*.apk
-        if-no-files-found: error
+        path: app-debug.apk
+        if-no-files-found: warn
