@@ -1,4 +1,5 @@
 name: Build Android APK
+
 on:
   push:
     branches: [ main, master ]
@@ -8,46 +9,52 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    
     steps:
     - uses: actions/checkout@v4
+    
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-    - name: Install deps
+    
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip
+        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libncurses5
+        
     - name: Build APK
       run: |
-        # Install buildozer
         python3.10 -m pip install --user buildozer cython
         export PATH="$HOME/.local/bin:$PATH"
         
-        # Build with proper exit code capture
-        set -e
-        echo "=== Starting build at $(date) ==="
+        # Run buildozer (let it handle everything)
         buildozer android debug 2>&1 | tee build.log
-        BUILD_EXIT=${PIPESTATUS[0]}
-        echo "Build exit code: $BUILD_EXIT"
         
-        # Search for APK
-        echo "=== Searching for APK ==="
+        # Check what was actually built
+        echo "=== Checking build output ==="
         ls -la bin/ 2>/dev/null || echo "No bin/ directory"
-        find . -name "*.apk" -type f 2>/dev/null
-        find ~ -name "*.apk" -path "*/.buildozer/*" 2>/dev/null
+        find ~/.buildozer -name "*.apk" 2>/dev/null | head -5
         
-        # Copy if found
-        find . -name "*.apk" -exec cp {} app.apk \; || true
-        ls -la app.apk 2>/dev/null || echo "No app.apk created"
+    - name: Locate and stage APK
+      run: |
+        # Search multiple locations
+        APK=$(find . -name "*.apk" -type f 2>/dev/null | head -1)
+        if [ -z "$APK" ]; then
+          APK=$(find ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -1)
+        fi
         
-        # Hard check
-        if [ ! -f app.apk ]; then
-          echo "ERROR: APK not found!"
+        if [ -n "$APK" ]; then
+          echo "Found APK: $APK"
+          cp "$APK" app-debug.apk
+        else
+          echo "=== Build log (last 100 lines) ==="
+          tail -100 build.log
           exit 1
         fi
-    - name: Upload
+        
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
-        path: app.apk
+        path: app-debug.apk
         if-no-files-found: error
