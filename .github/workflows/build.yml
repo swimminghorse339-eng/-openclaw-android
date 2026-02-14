@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # Pin to older Ubuntu for stability
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
     - name: Install
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libncurses5  # ncurses5 works on 22.04
+        sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip libncurses5 libtool
     - name: Build
       run: |
         export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -24,14 +24,22 @@ jobs:
         python3.10 -m pip install --user buildozer cython
         export PATH="$HOME/.local/bin:$PATH"
         buildozer android debug 2>&1 | tee build.log
-    - name: Find APK
-      if: always()
+    - name: Find and verify APK
       run: |
-        find ~/.buildozer -name "*.apk" -exec cp {} app.apk \; 2>/dev/null || true
-        ls -la app.apk 2>/dev/null || echo "No APK yet"
-    - name: Upload
+        echo "=== Searching for APK ==="
+        ls -la bin/ 2>/dev/null || echo "No bin/"
+        APK=$(find ~/.buildozer -name "*.apk" -type f 2>/dev/null | head -1)
+        if [ -n "$APK" ]; then
+          echo "✅ APK found: $APK"
+          cp "$APK" app.apk
+          ls -lh app.apk
+        else
+          echo "❌ No APK found"
+          exit 1
+        fi
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
         path: app.apk
-        if-no-files-found: warn
+        if-no-files-found: error
