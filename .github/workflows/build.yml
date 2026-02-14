@@ -10,36 +10,24 @@ jobs:
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v4
-    
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-    
-    - name: Install system deps
+    - name: Install deps
       run: |
         sudo apt-get update
         sudo apt-get install -y openjdk-17-jdk build-essential git zip unzip
-    
     - name: Build APK
       run: |
-        # Install in user space with Python 3.10
         python3.10 -m pip install --user buildozer cython
         export PATH="$HOME/.local/bin:$PATH"
-        
-        # Setup Android SDK
-        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
-        mkdir -p "$ANDROID_SDK_HOME/licenses"
-        echo "24333f8a63b6825ea9c5" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
-        
-        # Build
         buildozer android debug 2>&1 | tee build.log
-        
-        # Find and copy APK
-        find . -name "*.apk" -exec cp {} app-debug.apk \; || true
-    
-    - name: Upload
+        echo "====== APK SEARCH ========"
+        ls -la bin/ || echo "No bin dir"
+        find . -name "*.apk" -type f 2>/dev/null | head -5
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: android-apk
-        path: app-debug.apk
-        if-no-files-found: warn
+        path: bin/**/*.apk
+        if-no-files-found: error
