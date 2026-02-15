@@ -113,18 +113,56 @@ jobs:
           buildozer -v android debug 2>&1 | tee build.log
           echo "=== Build step complete ==="
 
-      - name: Find APK
+      - name: Find and verify APK
+        id: find_apk
         run: |
           echo "=== Searching for APK ==="
-          APK_FILE=$(find . ~ -name "*.apk" -type f 2>/dev/null | head -1)
+          
+          # Look in standard buildozer output locations (not ~ to avoid cached files)
+          APK_PATHS=(
+            "./bin"
+            "$HOME/.buildozer/android/app/build/outputs/apk/debug"
+            "$HOME/.buildozer/android/app/build/outputs/apk/release"
+            ".buildozer/android/app/build/outputs/apk/debug"
+            ".buildozer/android/app/build/outputs/apk/release"
+          )
+          
+          APK_FILE=""
+          for dir in "${APK_PATHS[@]}"; do
+            if [ -d "$dir" ]; then
+              echo "Checking: $dir"
+              FOUND=$(find "$dir" -name "*.apk" -type f -print -quit 2>/dev/null)
+              if [ -n "$FOUND" ]; then
+                APK_FILE="$FOUND"
+                echo "Found APK: $APK_FILE"
+                break
+              fi
+            fi
+          done
+          
+          # Also check if buildozer created bin/*.apk
+          if [ -z "$APK_FILE" ]; then
+            FOUND=$(find . -maxdepth 2 -name "*.apk" -type f 2>/dev/null | head -1)
+            if [ -n "$FOUND" ]; then
+              APK_FILE="$FOUND"
+              echo "Found APK in project: $APK_FILE"
+            fi
+          fi
+          
           if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
-            echo "Found APK: $APK_FILE"
+            echo "✅ APK found: $APK_FILE"
             ls -lh "$APK_FILE"
             cp "$APK_FILE" ./app.apk
+            echo "apk_path=app.apk" >> $GITHUB_OUTPUT
+            echo "apk_size=$(stat -c%s ./app.apk)" >> $GITHUB_OUTPUT
           else
-            echo "No APK found"
-            ls -la bin/ 2>/dev/null || true
-            ls -laR .buildozer/android/app/ 2>/dev/null | head -30 || true
+            echo "❌ No APK found"
+            echo "=== Listing bin/ directory ==="
+            ls -la bin/ 2>/dev/null || echo "bin/ does not exist"
+            echo "=== Listing .buildozer/android/app/build ==="
+            ls -laR .buildozer/android/app/build 2>/dev/null | head -50 || echo "build directory does not exist"
+            echo "=== Last 100 lines of build.log ==="
+            tail -100 build.log 2>/dev/null || echo "No build.log"
             exit 1
           fi
 
@@ -134,3 +172,16 @@ jobs:
           name: android-apk
           path: app.apk
           if-no-files-found: error
+
+      - name: Report APK status
+        if: always()
+        run: |
+          echo "=== APK Build Summary ==="
+          if [ -f "app.apk" ]; then
+            echo "✅ APK successfully built"
+            ls -lh app.apk
+            echo "SHA256: $(sha256sum app.apk | cut -d' ' -f1)"
+          else
+            echo "❌ APK not found"
+          fi
+          echo "========================"
