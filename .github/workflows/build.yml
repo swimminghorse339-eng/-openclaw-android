@@ -35,6 +35,19 @@ jobs:
         echo ""
         echo "=== Checking android.accept_sdk_license ==="
         grep -i "accept_sdk" buildozer.spec || echo "NOT FOUND!"
+    
+    - name: Pre-build checks
+      run: |
+        echo "=== Checking Python syntax ==="
+        python -m py_compile main.py && echo "✅ main.py syntax OK" || echo "❌ main.py syntax ERROR"
+        
+        echo ""
+        echo "=== Checking source files ==="
+        ls -la *.py 2>/dev/null || echo "No .py files in root"
+        
+        echo ""
+        echo "=== Python imports test ==="
+        python -c "import kivy; print('Kivy version:', kivy.__version__)" 2>&1 || echo "⚠️ Kivy not installed locally (expected)"
 
     - name: Cache buildozer downloads
       uses: actions/cache@v4
@@ -56,16 +69,21 @@ jobs:
         rm -rf bin/ .buildozer/android/app/build/ build.log
         
         # Show environment
-        echo "=== Python Version ==="
+        echo "=== Environment Check ==="
         python --version
-        echo "=== Java Version ==="
         java -version 2>&1 || true
-        echo "=== Buildozer Version ==="
-        buildozer --version || true
+        buildozer --version 2>&1 || true
+        echo "JAVA_HOME=$JAVA_HOME"
+        echo "ANDROIDSDK=$ANDROIDSDK"
+        echo "ANDROIDNDK=$ANDROIDNDK"
         
-        # Run buildozer - NOW with set -e pipefail, failures will actually fail
+        # Run buildozer with verbose output and capture
         echo "=== Running buildozer android debug ==="
-        buildozer -v android debug 2>&1 | tee build.log
+        buildozer -v android debug 2>&1 | tee build.log || {
+          echo "❌ Buildozer failed! Showing last 100 lines of log:"
+          tail -100 build.log || true
+          exit 1
+        }
         
         echo "=== Build step COMPLETED (buildozer finished) ==="
         ls -la bin/ 2>/dev/null || echo "No bin directory"
