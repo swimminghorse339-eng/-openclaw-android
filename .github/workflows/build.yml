@@ -28,43 +28,13 @@ jobs:
       run: |
         pip install buildozer cython packaging setuptools
 
-    - name: Pre-setup Android SDK and accept licenses
+    - name: Debug - Show buildozer.spec
       run: |
-        echo "=== Setting up Android SDK and accepting ALL licenses ==="
-        
-        # This is where buildozer expects the SDK
-        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
-        mkdir -p "$ANDROID_SDK_HOME"
-        cd "$ANDROID_SDK_HOME"
-        
-        # Download command line tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-        unzip -q commandlinetools-linux-11076708_latest.zip
-        
-        # Create proper structure
-        mkdir -p cmdline-tools/latest
-        mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
-        
-        # Create the OLD directory structure buildozer expects
-        mkdir -p tools/bin
-        ln -sf "$ANDROID_SDK_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_HOME/tools/bin/sdkmanager"
-        
-        # Add to PATH
-        export PATH="$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$ANDROID_SDK_HOME/tools/bin:$PATH"
-        
-        # Accept ALL licenses non-interactively (THIS IS KEY!)
-        yes | sdkmanager --licenses || true
-        
-        # Also pre-populate the known license hashes
-        mkdir -p "$ANDROID_SDK_HOME/licenses"
-        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_HOME/licenses/android-sdk-license"
-        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
-        echo "504667f4c0de7af1a5731f33b62b0b6fd6d7d0a5" > "$ANDROID_SDK_HOME/licenses/android-sdk-preview-license"
-        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_SDK_HOME/licenses/android-sdk-license"
-        
-        echo "=== SDK setup complete ==="
-        echo "=== Licenses accepted: ==="
-        ls -la "$ANDROID_SDK_HOME/licenses/"
+        echo "=== buildozer.spec contents ==="
+        cat buildozer.spec
+        echo ""
+        echo "=== Checking android.accept_sdk_license ==="
+        grep -i "accept_sdk" buildozer.spec || echo "NOT FOUND!"
 
     - name: Cache buildozer downloads
       uses: actions/cache@v4
@@ -74,40 +44,58 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-buildozer-
 
-    - name: Build Android APK
+    - name: Build Android APK with real error capture
       timeout-minutes: 85
       run: |
         set -e
         set -o pipefail
-        echo "=== Starting APK build ==="
         
-        # Ensure buildozer can find SDK
-        export ANDROID_SDK_HOME="$HOME/.buildozer/android/platform/android-sdk"
-        export PATH="$ANDROID_SDK_HOME/tools/bin:$ANDROID_SDK_HOME/cmdline-tools/latest/bin:$PATH"
+        echo "=== Starting APK build ==="
         
         # Clean previous
         rm -rf bin/ .buildozer/android/app/build/ build.log
         
-        # Run buildozer with verbose output
+        # Show environment
+        echo "=== Python Version ==="
+        python --version
+        echo "=== Java Version ==="
+        java -version 2>&1 || true
+        echo "=== Buildozer Version ==="
+        buildozer --version || true
+        
+        # Run buildozer - NOW with set -e pipefail, failures will actually fail
         echo "=== Running buildozer android debug ==="
         buildozer -v android debug 2>&1 | tee build.log
         
-        echo "=== Build step complete ==="
+        echo "=== Build step COMPLETED (buildozer finished) ==="
+        ls -la bin/ 2>/dev/null || echo "No bin directory"
 
-    - name: Find APK
+    - name: Find APK with aggressive search
       run: |
-        echo "=== Searching for APK ==="
+        echo "=== AGGRESSIVE APK SEARCH ==="
         
+        # List all APK files found anywhere
+        echo "--- All APK files in workspace ---"
+        find . -name "*.apk" -type f 2>/dev/null | head -20 || echo "No APK in workspace"
+        
+        echo "--- All APK files in home ---"
+        find ~ -name "*.apk" -type f 2>/dev/null | head -20 || echo "No APK in home"
+        
+        echo "--- buildozer bin/ directory ---"
+        ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+        
+        echo "--- .buildozer/android/ directories ---"
+        ls -laR .buildozer/android/ 2>/dev/null | head -100 || echo "No build directory"
+        
+        # Try to find and copy APK
         APK_FILE=$(find . ~ -name "*.apk" -type f 2>/dev/null | head -1)
-        
         if [ -n "$APK_FILE" ] && [ -f "$APK_FILE" ]; then
-          echo "Found APK: $APK_FILE"
+          echo "✅ Found APK: $APK_FILE"
           ls -lh "$APK_FILE"
           cp "$APK_FILE" ./app.apk
+          echo "APK copied to ./app.apk"
         else
-          echo "No APK found"
-          ls -la bin/ 2>/dev/null || true
-          ls -laR .buildozer/android/app/ 2>/dev/null | head -30 || true
+          echo "❌ NO APK FOUND!"
           exit 1
         fi
 
@@ -116,4 +104,10 @@ jobs:
       with:
         name: android-apk
         path: app.apk
-        if-no-files-found: error
+        if-no-files-found: warn
+
+    - name: Show build log on failure
+      if: failure()
+      run: |
+        echo "=== FULL BUILD LOG (last 500 lines) ==="
+        cat build.log | tail -500 2>/dev/null || echo "No build.log file"
