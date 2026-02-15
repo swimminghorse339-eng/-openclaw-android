@@ -78,6 +78,7 @@ jobs:
       timeout-minutes: 85
       run: |
         set -e
+        set -o pipefail
         echo "=== Starting APK build ==="
         
         # Ensure buildozer can find SDK
